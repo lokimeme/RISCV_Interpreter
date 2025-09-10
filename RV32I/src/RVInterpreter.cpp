@@ -308,3 +308,110 @@ void RVInterpreter::decode_and_execute(uint32_t instruction) {
     if (!running)
       return; // Check if memory write failed
   } break;
+
+  case 0x6F: // JAL (Jump and Link) - UJ-Type
+             // std::cout << "  Executing JAL x" << rd << ", 0x" << std::hex
+             // << (pc - 4 + imm_j) << std::dec << std::endl;
+    if (rd != 0) {
+      regs[rd] = pc; // Store return address (PC of instruction *after* JAL)
+    }
+    pc = (pc - 4) + imm_j; // Jump to target address (PC relative)
+    // Ensure PC is aligned (although J/B immediates guarantee this if tools
+    // are correct)
+    if (pc % 2 != 0) {
+
+      std::cerr << "Error: JAL target PC misaligned: 0x" << std::hex << pc
+                << std::dec << std::endl;
+      running = false;
+    }
+    pc_changed = true;
+    break;
+
+  case 0x67: // JALR (Jump and Link Register) - I-Type
+    switch (funct3) {
+
+    case 0x0: {
+      uint32_t target_address =
+          (regs[rs1] + imm_i) & ~1U; // Calculate target, ensure LSB is 0
+      // std::cout << "  Executing JALR x" << rd << ", x" << rs1 << ", " <<
+      // imm_i << " -> target 0x" << std::hex << target_address << std::dec <<
+      // std::endl;
+
+      if (rd != 0) {
+        regs[rd] = pc; // Store return address (PC of instruction *after* JALR)
+      }
+      pc = target_address;
+      pc_changed = true;
+    } break;
+    default:
+      std::cerr << "Warning: Unimplemented JALR funct3: 0x" << std::hex
+                << funct3 << std::dec << std::endl;
+      break;
+    }
+    break;
+
+  case 0x63: // BRANCH instructions (BEQ, BNE, BLT, BGE, BLTU, BGEU) - SB-Type
+  {
+    bool should_branch = false;
+    // Note: Comparison uses signed values for BLT/BGE, unsigned for BLTU/BGEU
+    switch (funct3) {
+    case 0x0: // BEQ (Branch if Equal)
+              // std::cout << "  Executing BEQ x" << rs1 << ", x" << rs2 << ",
+              // target_offset " << imm_b << std::endl;
+      if (regs[rs1] == regs[rs2])
+        should_branch = true;
+      break;
+    case 0x1: // BNE (Branch if Not Equal)
+
+      // std::cout << "  Executing BNE x" << rs1 << ", x" << rs2 << ",
+      // target_offset " << imm_b << std::endl;
+      if (regs[rs1] != regs[rs2])
+        should_branch = true;
+      break;
+    case 0x4: // BLT (Branch if Less Than - Signed)
+      if (static_cast<int32_t>(regs[rs1]) < static_cast<int32_t>(regs[rs2]))
+        should_branch = true;
+      break;
+    case 0x5: // BGE (Branch if Greater Than or Equal - Signed)
+      if (static_cast<int32_t>(regs[rs1]) >= static_cast<int32_t>(regs[rs2]))
+        should_branch = true;
+      break;
+    case 0x6: // BLTU (Branch if Less Than - Unsigned)
+      if (regs[rs1] < regs[rs2])
+        should_branch = true;
+      break;
+    case 0x7: // BGEU (Branch if Greater Than or Equal - Unsigned)
+
+      if (regs[rs1] >= regs[rs2])
+        should_branch = true;
+      break;
+    default:
+      std::cerr << "Warning: Unimplemented BRANCH funct3: 0x" << std::hex
+                << funct3 << std::dec << std::endl;
+      break;
+    }
+
+    if (should_branch) {
+      pc = (pc - 4) + imm_b; // Branch is PC-relative
+      // Ensure PC is aligned (B immediates guarantee this if tools are
+      // correct)
+      if (pc % 2 != 0) {
+        std::cerr << "Error: Branch target PC misaligned: 0x" << std::hex << pc
+                  << std::dec << std::endl;
+        running = false;
+      }
+
+      pc_changed = true;
+      // std::cout << "    Branch taken. New PC: 0x" << std::hex << pc <<
+      // std::dec << std::endl;
+    }
+  } break;
+
+  case 0x37: // LUI (Load Upper Immediate) - U-Type
+             // std::cout << "  Executing LUI x" << rd << ", 0x" << std::hex
+             // << (imm_u >> 12) << std::dec << std::endl;
+    if (rd != 0)
+      regs[rd] = imm_u;
+
+    break;
+
